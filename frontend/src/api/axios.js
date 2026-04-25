@@ -13,7 +13,6 @@ axiosInstance.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('token');
     if (token) {
-      // Vérifier si le token n'est pas expiré avant de l'envoyer
       try {
         const payload = JSON.parse(atob(token.split('.')[1]));
         const isExpired = payload.exp * 1000 < Date.now();
@@ -44,11 +43,9 @@ axiosInstance.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
-      // Token expiré ou invalide
       localStorage.removeItem('token');
       localStorage.removeItem('user');
 
-      // Ne pas rediriger si on est déjà sur login
       if (window.location.pathname !== '/login') {
         window.location.href = '/login';
       }
