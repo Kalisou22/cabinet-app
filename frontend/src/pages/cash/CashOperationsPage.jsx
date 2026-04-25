@@ -31,15 +31,16 @@ const CashOperationsPage = () => {
     const now = new Date();
     let start, end;
     if (period === 'today') {
-      start = new Date(now.setHours(0,0,0,0)).toISOString();
-      end = new Date(new Date().setHours(23,59,59,999)).toISOString();
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0).toISOString();
+      end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59).toISOString();
     } else if (period === 'week') {
-      const day = now.getDay() || 7;
-      start = new Date(now.setDate(now.getDate() - day + 1));
-      start.setHours(0,0,0,0);
+      const dayOfWeek = now.getDay() || 7;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - dayOfWeek + 1);
+      start = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate(), 0, 0, 0).toISOString();
       end = new Date().toISOString();
     } else {
-      start = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0).toISOString();
       end = new Date().toISOString();
     }
     return { start, end };
@@ -62,10 +63,20 @@ const CashOperationsPage = () => {
     }
   };
 
+  const getPeriodLabel = () => {
+    switch (period) {
+      case 'today': return "Aujourd'hui";
+      case 'week': return 'Cette semaine';
+      case 'month': return 'Ce mois';
+      default: return '';
+    }
+  };
+
   if (loading) {
     return (
       <div className="loading-container">
         <div className="loading-spinner"></div>
+        <p className="mt-4 text-text-secondary">Chargement des opérations...</p>
       </div>
     );
   }
@@ -75,13 +86,13 @@ const CashOperationsPage = () => {
       <div className="page-header">
         <div>
           <h1 className="page-title">💰 Caisse</h1>
-          <p className="page-subtitle">Gestion des entrées et sorties d'argent</p>
+          <p className="page-subtitle">Gestion des entrées et sorties d'argent • {getPeriodLabel()}</p>
         </div>
         <div className="flex gap-2">
           {pendingReminders > 0 && (
             <button
               onClick={() => navigate('/reminders')}
-              className="btn-warning flex items-center gap-2"
+              className="btn-outline flex items-center gap-2"
             >
               🔔 {pendingReminders} rappel{pendingReminders > 1 ? 's' : ''}
             </button>
@@ -114,7 +125,7 @@ const CashOperationsPage = () => {
       </div>
 
       <div className="card p-4">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <label className="text-sm font-medium text-text-secondary">Période :</label>
           <select
             value={period}
@@ -125,6 +136,9 @@ const CashOperationsPage = () => {
             <option value="week">Cette semaine</option>
             <option value="month">Ce mois</option>
           </select>
+          <span className="text-sm text-text-muted">
+            {operations.length} opération{operations.length > 1 ? 's' : ''}
+          </span>
         </div>
       </div>
 
@@ -143,16 +157,24 @@ const CashOperationsPage = () => {
             <tbody>
               {operations.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="text-center py-12 text-text-secondary">
+                  <td colSpan="5" className="text-center py-12">
                     <div className="empty-state-icon">💰</div>
                     <p className="empty-state-title">Aucune opération</p>
-                    <p className="empty-state-description">Commencez par ajouter une opération</p>
+                    <p className="empty-state-description">
+                      Commencez par ajouter une entrée ou sortie d'argent
+                    </p>
+                    <button
+                      onClick={() => navigate('/cash-operations/new')}
+                      className="btn-primary mt-4"
+                    >
+                      + Nouvelle opération
+                    </button>
                   </td>
                 </tr>
               ) : (
                 operations.map((op) => (
                   <tr key={op.id}>
-                    <td>{formatDateTime(op.createdAt)}</td>
+                    <td className="whitespace-nowrap">{formatDateTime(op.createdAt)}</td>
                     <td>{op.categoryName || '—'}</td>
                     <td>
                       <span className={`badge ${op.type === 'ENTREE' ? 'badge-success' : 'badge-danger'}`}>
@@ -160,7 +182,7 @@ const CashOperationsPage = () => {
                       </span>
                     </td>
                     <td className="text-right">
-                      <span className={`font-mono font-medium ${op.type === 'ENTREE' ? 'text-success' : 'text-danger'}`}>
+                      <span className={`font-mono font-semibold ${op.type === 'ENTREE' ? 'text-success' : 'text-danger'}`}>
                         {op.type === 'ENTREE' ? '+' : '−'} {formatCurrency(op.montant)}
                       </span>
                     </td>

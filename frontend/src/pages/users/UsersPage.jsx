@@ -24,7 +24,6 @@ const UsersPage = () => {
 
   useEffect(() => {
     if (!isAdmin) {
-      alert('Accès réservé aux administrateurs');
       navigate('/dashboard');
       return;
     }
@@ -294,7 +293,7 @@ const UsersPage = () => {
                             onClick={() => navigate(`/users/${user.id}/edit`)}
                             className="btn-icon btn-sm"
                             title="Modifier"
-                            disabled={isCurrentUser && user.role === 'ADMIN' && users.filter(u => u.role === 'ADMIN').length === 1}
+                            disabled={isCurrentUser && user.role === 'ADMIN' && users.filter(u => u.role === 'ADMIN' && u.active).length === 1}
                           >
                             ✏️
                           </button>
