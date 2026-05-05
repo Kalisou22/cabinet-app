@@ -39,7 +39,6 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        // ✅ CORRIGÉ : Sans /api car le context-path l'ajoute automatiquement
                         .requestMatchers("/v1/auth/**").permitAll()
                         .requestMatchers("/v1/ping").permitAll()
                         .requestMatchers("/actuator/health/**").permitAll()
@@ -59,7 +58,8 @@ public class SecurityConfig {
         configuration.setAllowedOrigins(List.of(
                 "http://localhost:5173",
                 "http://localhost:3000",
-                "http://127.0.0.1:5173"
+                "http://127.0.0.1:5173",
+                "https://celadon-bubblegum-f37dd1.netlify.app"
         ));
         configuration.setAllowedMethods(List.of(
                 "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"
