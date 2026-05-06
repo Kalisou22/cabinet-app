@@ -17,9 +17,7 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.web.cors.CorsConfiguration;
-import org.springframework.web.cors.CorsConfigurationSource;
-import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.web.cors.*;
 
 import java.util.List;
 
@@ -39,10 +37,26 @@ public class SecurityConfig {
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        // ✅ Autoriser accès public
+                        .requestMatchers(
+                                "/",
+                                "/error",
+                                "/favicon.ico"
+                        ).permitAll()
+
+                        // ✅ Auth publique
                         .requestMatchers("/v1/auth/**").permitAll()
-                        .requestMatchers("/v1/ping").permitAll()
+
+                        // ✅ Health check (Render)
                         .requestMatchers("/actuator/health/**").permitAll()
+
+                        // ✅ Test endpoint
+                        .requestMatchers("/v1/ping").permitAll()
+
+                        // ✅ Admin
                         .requestMatchers("/v1/admin/**").hasRole("ADMIN")
+
+                        // 🔒 Tout le reste sécurisé
                         .anyRequest().authenticated()
                 )
                 .authenticationProvider(authenticationProvider())
@@ -54,17 +68,30 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
+
+        // ✅ SUPPORT Netlify + Vercel + local
         configuration.setAllowedOriginPatterns(List.of(
                 "https://*.netlify.app",
-                "http://localhost:*"
+                "https://*.vercel.app",
+                "http://localhost:*",
+                "http://127.0.0.1:*"
         ));
-        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
+
+        configuration.setAllowedMethods(List.of(
+                "GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"
+        ));
+
         configuration.setAllowedHeaders(List.of("*"));
         configuration.setExposedHeaders(List.of("Authorization"));
+
+        // ⚠️ IMPORTANT pour JWT
         configuration.setAllowCredentials(true);
+
+        configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);
+
         return source;
     }
 
