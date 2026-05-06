@@ -2,6 +2,7 @@ package com.transfertcabinet.app.service.impl;
 
 import com.transfertcabinet.app.dto.request.ClientRequest;
 import com.transfertcabinet.app.dto.response.ClientResponse;
+import com.transfertcabinet.app.dto.response.ClientSummaryResponse;
 import com.transfertcabinet.app.entity.Client;
 import com.transfertcabinet.app.exception.BusinessException;
 import com.transfertcabinet.app.exception.DuplicateResourceException;
@@ -9,6 +10,7 @@ import com.transfertcabinet.app.exception.ResourceNotFoundException;
 import com.transfertcabinet.app.mapper.ClientMapper;
 import com.transfertcabinet.app.repository.ClientRepository;
 import com.transfertcabinet.app.service.ClientService;
+import com.transfertcabinet.app.service.balance.BalanceCalculator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -16,6 +18,8 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -27,6 +31,7 @@ public class ClientServiceImpl implements ClientService {
 
     private final ClientRepository clientRepository;
     private final ClientMapper clientMapper;
+    private final BalanceCalculator balanceCalculator; // ✅ AJOUTÉ
 
     @Override
     public ClientResponse create(ClientRequest request) {
@@ -146,5 +151,32 @@ public class ClientServiceImpl implements ClientService {
         clientRepository.save(client);
 
         log.info("Client soft deleted successfully with ID: {}", id);
+    }
+
+    // ✅ NOUVEAU : Résumé clients avec balance et dette (optimisation performance)
+    @Override
+    @Transactional(readOnly = true)
+    public List<ClientSummaryResponse> getClientsSummary() {
+        log.debug("Getting clients summary with balance and debt");
+
+        List<Client> clients = clientRepository.findAllActive();
+        List<ClientSummaryResponse> summaries = new ArrayList<>();
+
+        for (Client client : clients) {
+            BigDecimal balance = balanceCalculator.getClientBalance(client);
+            BigDecimal debt = balance.compareTo(BigDecimal.ZERO) < 0 ? balance.abs() : BigDecimal.ZERO;
+
+            summaries.add(ClientSummaryResponse.builder()
+                    .clientId(client.getId())
+                    .clientName(client.getNom())
+                    .clientPhone(client.getTelephone())
+                    .balance(balance)
+                    .debt(debt)
+                    .hasDebt(debt.compareTo(BigDecimal.ZERO) > 0)
+                    .hasAdvance(balance.compareTo(BigDecimal.ZERO) > 0)
+                    .build());
+        }
+
+        return summaries;
     }
 }

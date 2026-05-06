@@ -2,6 +2,7 @@ package com.transfertcabinet.app.controller;
 
 import com.transfertcabinet.app.dto.request.ClientRequest;
 import com.transfertcabinet.app.dto.response.ClientResponse;
+import com.transfertcabinet.app.dto.response.ClientSummaryResponse;
 import com.transfertcabinet.app.service.ClientService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -81,5 +82,13 @@ public class ClientController {
         log.info("REST request to delete Client: {}", id);
         clientService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    // ✅ NOUVEAU : Résumé clients avec balance et dette (optimisation performance)
+    @GetMapping("/summary")
+    public ResponseEntity<List<ClientSummaryResponse>> getClientsSummary() {
+        log.info("REST request to get clients summary with balance and debt");
+        List<ClientSummaryResponse> responses = clientService.getClientsSummary();
+        return ResponseEntity.ok(responses);
     }
 }

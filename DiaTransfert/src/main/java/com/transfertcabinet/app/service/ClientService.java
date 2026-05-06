@@ -2,6 +2,7 @@ package com.transfertcabinet.app.service;
 
 import com.transfertcabinet.app.dto.request.ClientRequest;
 import com.transfertcabinet.app.dto.response.ClientResponse;
+import com.transfertcabinet.app.dto.response.ClientSummaryResponse;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -21,4 +22,7 @@ public interface ClientService {
 
     // IMPROVEMENT: Clients endettés
     List<ClientResponse> findClientsWithDebt();
+
+    // ✅ Ajout : Résumé clients avec balance et dette
+    List<ClientSummaryResponse> getClientsSummary();
 }

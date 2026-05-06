@@ -3,19 +3,18 @@ package com.transfertcabinet.app.service.impl;
 import com.transfertcabinet.app.dto.request.ClientTransactionRequest;
 import com.transfertcabinet.app.dto.response.ClientDebtResponse;
 import com.transfertcabinet.app.dto.response.ClientTransactionResponse;
-import com.transfertcabinet.app.entity.Client;
-import com.transfertcabinet.app.entity.ClientTransaction;
-import com.transfertcabinet.app.entity.User;
+import com.transfertcabinet.app.entity.*;
 import com.transfertcabinet.app.enums.TransactionNature;
 import com.transfertcabinet.app.enums.TransactionStatus;
 import com.transfertcabinet.app.enums.TransactionType;
 import com.transfertcabinet.app.exception.BusinessException;
 import com.transfertcabinet.app.exception.ResourceNotFoundException;
 import com.transfertcabinet.app.mapper.ClientTransactionMapper;
-import com.transfertcabinet.app.repository.ClientRepository;
-import com.transfertcabinet.app.repository.ClientTransactionRepository;
-import com.transfertcabinet.app.repository.UserRepository;
+import com.transfertcabinet.app.mapper.TransactionMapper;
+import com.transfertcabinet.app.repository.*;
 import com.transfertcabinet.app.service.ClientTransactionService;
+import com.transfertcabinet.app.service.balance.BalanceCalculator;
+import com.transfertcabinet.app.service.validator.TransactionValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -25,8 +24,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -38,11 +37,18 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
     private final ClientTransactionRepository transactionRepository;
     private final ClientRepository clientRepository;
     private final UserRepository userRepository;
+    private final AccountRepository accountRepository;
+    private final TransactionRepository newTransactionRepository;
     private final ClientTransactionMapper transactionMapper;
+    private final TransactionMapper newTransactionMapper;
+    private final TransactionValidator transactionValidator;
+    private final BalanceCalculator balanceCalculator;
+
+    private static final Long DEFAULT_ACCOUNT_ID = 1L;
 
     @Override
     public ClientTransactionResponse create(ClientTransactionRequest request) {
-        log.info("Creating new transaction for client ID: {}", request.getClientId());
+        log.info("Creating transaction for client ID: {}", request.getClientId());
 
         Client client = clientRepository.findById(request.getClientId())
                 .orElseThrow(() -> new ResourceNotFoundException("Client", "id", request.getClientId()));
@@ -50,12 +56,45 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
         User user = userRepository.findById(request.getUserId())
                 .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getUserId()));
 
-        validateTransaction(request);
+        Account account = accountRepository.findById(DEFAULT_ACCOUNT_ID)
+                .orElseThrow(() -> new ResourceNotFoundException("Account", "id", DEFAULT_ACCOUNT_ID));
 
+        // Convertir le type legacy (DEPOT/RETRAIT) vers le nouveau type métier
+        String legacyTypeName = request.getType().name(); // "DEPOT" ou "RETRAIT"
+        TransactionType newType = newTransactionMapper.mapLegacy(legacyTypeName, request.getNature());
+
+        // Valider la transaction
+        transactionValidator.validate(newType, client, account, request.getMontant());
+
+        // Créer la nouvelle transaction (table transactions)
+        Transaction newTransaction = Transaction.builder()
+                .client(client)
+                .account(account)
+                .type(newType)
+                .amount(request.getMontant())
+                .description(request.getDescription())
+                .user(user)
+                .transactionDate(LocalDateTime.now())
+                .build();
+
+        newTransactionRepository.save(newTransaction);
+
+        // Garder l'ancienne table pour compatibilité frontend
         ClientTransaction transaction = transactionMapper.toEntity(request, client, user);
-        ClientTransaction savedTransaction = transactionRepository.save(transaction);
 
-        log.info("Transaction created successfully with ID: {}", savedTransaction.getId());
+        if (request.getNature() == TransactionNature.CASH) {
+            transaction.setStatus(TransactionStatus.REMBOURSE);
+            transaction.setResteAPayer(BigDecimal.ZERO);
+        } else {
+            transaction.setStatus(TransactionStatus.EN_COURS);
+            if (request.getResteAPayer() == null) {
+                transaction.setResteAPayer(request.getMontant());
+            }
+        }
+
+        ClientTransaction savedTransaction = transactionRepository.save(transaction);
+        log.info("Transaction created with ID: {}", savedTransaction.getId());
+
         return transactionMapper.toResponse(savedTransaction);
     }
 
@@ -76,12 +115,11 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
                         .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getUserId())) :
                 transaction.getUser();
 
-        validateTransaction(request);
-
         transactionMapper.updateEntity(transaction, request, client, user);
-        ClientTransaction updatedTransaction = transactionRepository.save(transaction);
 
-        log.info("Transaction updated successfully with ID: {}", updatedTransaction.getId());
+        ClientTransaction updatedTransaction = transactionRepository.save(transaction);
+        log.info("Transaction updated with ID: {}", updatedTransaction.getId());
+
         return transactionMapper.toResponse(updatedTransaction);
     }
 
@@ -89,10 +127,8 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
     @Transactional(readOnly = true)
     public ClientTransactionResponse findById(Long id) {
         log.debug("Finding transaction by ID: {}", id);
-
         ClientTransaction transaction = transactionRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Transaction", "id", id));
-
         return transactionMapper.toResponse(transaction);
     }
 
@@ -100,7 +136,6 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
     @Transactional(readOnly = true)
     public List<ClientTransactionResponse> findAll() {
         log.debug("Finding all transactions");
-
         return transactionRepository.findAllActive().stream()
                 .map(transactionMapper::toResponse)
                 .collect(Collectors.toList());
@@ -108,17 +143,8 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
 
     @Override
     @Transactional(readOnly = true)
-    public Page<ClientTransactionResponse> findAllPaginated(Pageable pageable) {
-        log.debug("Finding all paginated transactions");
-        return transactionRepository.findAllActive(pageable)
-                .map(transactionMapper::toResponse);
-    }
-
-    @Override
-    @Transactional(readOnly = true)
     public List<ClientTransactionResponse> findByClientId(Long clientId) {
         log.debug("Finding transactions for client ID: {}", clientId);
-
         return transactionRepository.findByClientId(clientId).stream()
                 .map(transactionMapper::toResponse)
                 .collect(Collectors.toList());
@@ -128,7 +154,6 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
     @Transactional(readOnly = true)
     public List<ClientTransactionResponse> findByStatus(TransactionStatus status) {
         log.debug("Finding transactions by status: {}", status);
-
         return transactionRepository.findByStatus(status).stream()
                 .map(transactionMapper::toResponse)
                 .collect(Collectors.toList());
@@ -138,7 +163,6 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
     @Transactional(readOnly = true)
     public List<ClientTransactionResponse> findByNature(TransactionNature nature) {
         log.debug("Finding transactions by nature: {}", nature);
-
         return transactionRepository.findByNature(nature).stream()
                 .map(transactionMapper::toResponse)
                 .collect(Collectors.toList());
@@ -152,7 +176,7 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
         Client client = clientRepository.findById(clientId)
                 .orElseThrow(() -> new ResourceNotFoundException("Client", "id", clientId));
 
-        BigDecimal totalDebt = transactionRepository.calculateTotalDebtByClientId(clientId);
+        BigDecimal debt = balanceCalculator.getClientDebt(client);
 
         List<ClientTransaction> pendingTransactions = transactionRepository
                 .findByClientIdAndStatus(clientId, TransactionStatus.EN_COURS);
@@ -163,50 +187,26 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
                 .min(LocalDate::compareTo)
                 .orElse(null);
 
-        return transactionMapper.toDebtResponse(client, totalDebt, nextDueDate, pendingTransactions.size());
+        return transactionMapper.toDebtResponse(client, debt, nextDueDate, pendingTransactions.size());
     }
 
     @Override
-    public void delete(Long id) {
-        log.info("Deleting transaction with ID: {}", id);
-
-        ClientTransaction transaction = transactionRepository.findById(id)
-                .orElseThrow(() -> new ResourceNotFoundException("Transaction", "id", id));
-
-        transaction.setDeleted(true);
-        transactionRepository.save(transaction);
-
-        log.info("Transaction soft deleted successfully with ID: {}", id);
+    @Transactional(readOnly = true)
+    public Page<ClientTransactionResponse> findAllPaginated(Pageable pageable) {
+        log.debug("Finding all paginated transactions");
+        return transactionRepository.findAllActive(pageable)
+                .map(transactionMapper::toResponse);
     }
 
-    // ✅ AJOUT : Calculer le solde d'un client (avance/dette)
     @Override
     @Transactional(readOnly = true)
     public BigDecimal getClientSolde(Long clientId) {
         log.debug("Calculating solde for client ID: {}", clientId);
-
-        List<ClientTransaction> creditTransactions = transactionRepository
-                .findByClientIdAndNature(clientId, TransactionNature.CREDIT);
-
-        BigDecimal totalDepots = creditTransactions.stream()
-                .filter(t -> t.getType() == TransactionType.DEPOT)
-                .map(ClientTransaction::getResteAPayer)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal totalRetraits = creditTransactions.stream()
-                .filter(t -> t.getType() == TransactionType.RETRAIT)
-                .map(ClientTransaction::getResteAPayer)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        // SOLDE = DEPOT - RETRAIT
-        // > 0 : cabinet doit au client (AVANCE)
-        // < 0 : client doit au cabinet (DETTE)
-        return totalDepots.subtract(totalRetraits);
+        Client client = clientRepository.findById(clientId)
+                .orElseThrow(() -> new ResourceNotFoundException("Client", "id", clientId));
+        return balanceCalculator.getClientBalance(client);
     }
 
-    // ✅ AJOUT : Vérifier si un client a une relation d'avance/dette
     @Override
     @Transactional(readOnly = true)
     public boolean hasCreditRelation(Long clientId) {
@@ -214,20 +214,13 @@ public class ClientTransactionServiceImpl implements ClientTransactionService {
         return transactionRepository.countByClientIdAndNature(clientId, TransactionNature.CREDIT) > 0;
     }
 
-    private void validateTransaction(ClientTransactionRequest request) {
-        if (request.getNature() == TransactionNature.CREDIT) {
-            if (request.getDueDate() == null) {
-                throw new BusinessException("Due date is required for credit transactions");
-            }
-            if (request.getDueDate().isBefore(LocalDate.now())) {
-                throw new BusinessException("Due date cannot be in the past");
-            }
-        }
-
-        if (request.getNature() == TransactionNature.CASH) {
-            if (request.getStatus() != null && request.getStatus() == TransactionStatus.EN_COURS) {
-                throw new BusinessException("Cash transaction cannot be EN_COURS");
-            }
-        }
+    @Override
+    public void delete(Long id) {
+        log.info("Deleting transaction with ID: {}", id);
+        ClientTransaction transaction = transactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Transaction", "id", id));
+        transaction.setDeleted(true);
+        transactionRepository.save(transaction);
+        log.info("Transaction soft deleted with ID: {}", id);
     }
 }
