@@ -67,7 +67,7 @@ const Sidebar = ({ isMobileOpen, onMobileClose }) => {
             <span className="w-2 h-2 rounded-full bg-success"></span>
           </div>
           <span className="text-xl font-display font-bold bg-gradient-to-r from-success to-danger bg-clip-text text-transparent">
-            MAMTA
+            DIA-TRANSFERT
           </span>
         </div>
       </div>
